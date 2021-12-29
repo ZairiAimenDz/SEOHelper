@@ -13,6 +13,7 @@
         public int YourScore { get; set; } = 0;
         public bool Works { get; set; }
         public bool TemporaryRedirect { get; set; }
+        public HashSet<string> Keywords { get; set; } = new();
         public List<SEOError> SEOErrors { get; set; } = new();
         public BasicSEO BasicSEO { get; set; } = new();
         public OnPageSEO OnPageSEO { get; set; } = new();
@@ -25,13 +26,13 @@
         public SubHeadingErrors SubHeadingErrors { get; set; } = new();
         public MetaDescriptionErrors MetaDescriptionErrors { get; set; } = new();
         public ContentErrors ContentErrors { get; set; } = new();
-        public List<Image> ImageErrors{ get; set; } = new();
+        public ImageErrors ImageErrors{ get; set; } = new();
     }
 
-    public class Image
+    public class ImageErrors
     {
-        public bool Exists { get; set; }
-        public bool HasAlt { get; set; }
+        public bool ImagesExist { get; set; }
+        public bool AllImgsHasAlt { get; set; }
         public bool AltContainsKeywords { get; set; }
     }
 
@@ -55,9 +56,12 @@
 
     public class MetaDescriptionErrors
     {
+        public string MetaDescription { get; set; } = "";
         public bool Exists { get; set; }
         public int Length { get; set; }
         public bool HasKeywords { get; set; }
+        public bool HasPrimaryKeyword { get; set; }
+        public bool MoreThanOne { get; set; }
         public bool DuplicateExist { get; set; }
     }
 

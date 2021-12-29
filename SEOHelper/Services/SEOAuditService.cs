@@ -9,10 +9,18 @@ namespace SEOHelper.Service
     public class SEOAuditService : ISEOAuditService
     {
         // Constants
-        const double MaxLoadTime = 2;
-        const double MaxURLLength = 80;
-        const double MaxTitleLength = 70;
-        const double MaxHeadingLength = 80;
+        const int MaxLoadTime = 2;
+        const int MaxURLLength = 80;
+        const int MaxTitleLength = 70;
+        const int MaxHeadingLength = 80;
+        const int MaxMetaDescLength = 165;
+        const int MinMetaDescLength = 80;
+        const int MinContentLength = 300;
+        const int MaxSentenceLength = 30;
+        public Task<WebsiteAuditResult> AllPageAudit(string URL, string PrimaryKeyword, string[]? Keywords)
+        {
+            return null;
+        }
 
         public async Task<PageAuditResult> OnePageAudit(string URL, string PrimaryKeyword, string[]? Keywords)
         {
@@ -30,30 +38,17 @@ namespace SEOHelper.Service
                 result.YourScore += 3;
             }
             else
-            {
-                result.SEOErrors.Add(new()
-                {
-                    ErrorImpact = "HIGH",
-                    ErrorPlace = "HTTPS",
-                    ErrorText = "Your Website Doesn't have HTTPS which is recommended",
-                    ErrorWeight = "Moderate"
-                });
-            }
+                AddError(result, "HIGH", "HTTPS", "Your Website Doesn't have HTTPS which is recommended", "Moderate");
+
 
             // Checking For Temporary Redirects 
 
-            result.TotalScore += 3; 
+            result.TotalScore += 3;
             var response = await web1.GetAsync(URL);
-            if(response.StatusCode == HttpStatusCode.TemporaryRedirect)
+            if (response.StatusCode == HttpStatusCode.TemporaryRedirect)
             {
                 result.TemporaryRedirect = true;
-                result.SEOErrors.Add(new()
-                {
-                    ErrorImpact = "HIGH",
-                    ErrorPlace = "Website",
-                    ErrorWeight = "HEAVY",
-                    ErrorText = "The Website Has A Temporary Redirect"
-                });
+                AddError(result, "HIGH", "HEAVY", "Website", "The Website Has A Temporary Redirect");
             }
             else
             {
@@ -73,7 +68,7 @@ namespace SEOHelper.Service
             {
                 return new()
                 {
-                    Works =false,
+                    Works = false,
                     SEOErrors = new()
                     {
                         new()
@@ -90,7 +85,269 @@ namespace SEOHelper.Service
 
             var doc = new HtmlDocument();
             doc.LoadHtml(data);
+
+            HashSet<string> KeywordsList = GetAllkeywords(Keywords, doc);
             TimeSpan timeTaken = timer.Elapsed;
+
+            CheckLoadingTime(result, basic, data, timeTaken);
+            await CheckSSLCertificate(URL, result, basic);
+            CheckDoctype(result, basic, data);
+            CheckMobileResponsivness(result, basic, data);
+            CheckEncoding(result, basic, data);
+            CheckMinimalJS(result, doc);
+            CheckURLErrors(URL, PrimaryKeyword, result, web1, basic);
+            CheckSEBlock(result, basic, doc);
+
+            // On-Page SEO Errors 
+
+            TitleErrors titleErrors = TitleErrorsCheck(PrimaryKeyword, result, doc, KeywordsList);
+            HeadingErrors headingErrors = HeadingErrorsCheck(PrimaryKeyword, result, doc, KeywordsList);
+            SubHeadingErrors subHeadingErrors = SubHeadingErrorsCheck(PrimaryKeyword, result, doc, KeywordsList);
+            MetaDescriptionErrors metaDescriptionErrors = MetaDescErrorsCheck(PrimaryKeyword, result, doc, KeywordsList);
+            ImageErrors imgErrors = ImageErrorsCheck(PrimaryKeyword, result, doc, KeywordsList);
+
+
+            // Content Errors
+
+            ContentErrors contentErrors = new();
+            ContentErrorCheck(PrimaryKeyword, result, doc, KeywordsList, contentErrors);
+
+
+
+
+            // Final Result
+
+            result.Keywords = KeywordsList;
+            result.BasicSEO = basic;
+            result.OnPageSEO = new()
+            {
+                TitleErrors = titleErrors,
+                HeadingErrors = headingErrors,
+                SubHeadingErrors = subHeadingErrors,
+                MetaDescriptionErrors = metaDescriptionErrors,
+                ImageErrors = imgErrors,
+                ContentErrors = contentErrors,
+            };
+
+            // Returning The Final Result
+
+            return result;
+        }
+
+        private void ContentErrorCheck(string PrimaryKeyword, PageAuditResult result, HtmlDocument doc, HashSet<string> KeywordsList, ContentErrors contentErrors)
+        {
+
+            result.TotalScore += 7;
+            var content = doc.DocumentNode.SelectNodes("//p");
+            contentErrors.ContentLength = content.Sum(p => p.InnerText.Split(" ").Count());
+            if (contentErrors.ContentLength > MinContentLength)
+                result.YourScore += 2;
+            else
+                AddError(result, "MEDIUM", "LIGHT", "Content", $"Content is Less than The Recommended {MinContentLength} Words ");
+
+
+            contentErrors.HasKeywords = content.Any(p => KeywordsList.Any(k => CheckTextForKeywords(p.InnerText, k)) || CheckTextForKeywords(p.InnerHtml, PrimaryKeyword));
+            if (contentErrors.HasKeywords)
+                result.YourScore += 2;
+            else
+                AddError(result, "MEDIUM", "MODERATE", "Content", "The Content doesn't contain any keyword");
+
+            contentErrors.DuplicateContent = content.DistinctBy(p => p.InnerText).Count() != content.Count();
+            if (contentErrors.DuplicateContent)
+                AddError(result, "MEDIUM", "LIGHT", "Content", "Content is Duplicated At Least Once");
+            else
+                result.YourScore += 1;
+
+            contentErrors.PrimaryKeywordInFirstP = CheckTextForKeywords(content.First().InnerText, PrimaryKeyword);
+            if (contentErrors.PrimaryKeywordInFirstP)
+                result.YourScore++;
+            contentErrors.PrimaryKeywordInLastP = CheckTextForKeywords(content.Last().InnerText, PrimaryKeyword);
+            if (contentErrors.PrimaryKeywordInLastP)
+                result.YourScore++;
+        }
+
+        private static ImageErrors ImageErrorsCheck(string PrimaryKeyword, PageAuditResult result, HtmlDocument doc, HashSet<string> KeywordsList)
+        {
+            ImageErrors imgErrors = new();
+            result.TotalScore += 6;
+            imgErrors.ImagesExist = doc.DocumentNode.SelectNodes("//img").Count() > 0;
+            if (imgErrors.ImagesExist)
+                result.YourScore += 2;
+            else
+                result.SEOErrors.Add(new() { 
+                    ErrorWeight = "HEAVY",
+                    ErrorText= "Your Website Doesn't Have Any Images",
+                    ErrorPlace = "Images",
+                    ErrorImpact = "MEDIUM"
+                });
+
+            imgErrors.AllImgsHasAlt = doc.DocumentNode.SelectNodes("//img").All(i => i.Attributes.Contains("alt"));
+            if (imgErrors.AllImgsHasAlt)
+                result.YourScore += 2;
+            else
+                result.SEOErrors.Add(new()
+                {
+                    ErrorWeight = "MODERATE",
+                    ErrorText = "All Images Must Have Alt Attributes",
+                    ErrorPlace = "Images",
+                    ErrorImpact = "MEDIUM"
+                });
+
+            imgErrors.AltContainsKeywords = doc.DocumentNode.SelectNodes("//img").Where(i => i.Attributes.Contains("alt"))
+                .Any(i => KeywordsList.ToList().Any(k => CheckTextForKeywords(i.Attributes["alt"].Value, k)) || CheckTextForKeywords(i.Attributes["alt"].Value, PrimaryKeyword));
+            if (imgErrors.AltContainsKeywords)
+                result.YourScore += 2;
+            else
+                result.SEOErrors.Add(new()
+                {
+                    ErrorWeight = "MODERATE",
+                    ErrorText = "Images Alts Don't Contain ANy Keywords",
+                    ErrorPlace = "Images",
+                    ErrorImpact = "MEDIUM"
+                });
+
+            return imgErrors;
+        }
+
+        private static MetaDescriptionErrors MetaDescErrorsCheck(string PrimaryKeyword, PageAuditResult result, HtmlDocument doc, HashSet<string> KeywordsList)
+        {
+            MetaDescriptionErrors metaDescriptionErrors = new();
+            result.TotalScore += 13;
+            var metadescs = doc.DocumentNode.SelectNodes("//meta").Where(s => s.HasAttributes).Where(s => s.Attributes.Contains("name"))
+                .Where(s => s.Attributes["name"].Value.ToLower() == "description").ToList();
+            if (metadescs.Count() == 0)
+            {
+                result.SEOErrors.Add(new()
+                {
+                    ErrorImpact = "HIGH",
+                    ErrorPlace = "Meta Description",
+                    ErrorText = "The Web Page Doesn't have A Meta Description",
+                    ErrorWeight = "HEAVY"
+                });
+            }
+            else if (metadescs.Count() == 1)
+            {
+                metaDescriptionErrors.Exists = true;
+                metaDescriptionErrors.MetaDescription = metadescs.First().Attributes["content"].Value;
+                result.YourScore += 5;
+                // Meta Length
+
+                metaDescriptionErrors.Length = metaDescriptionErrors.MetaDescription.Length;
+                if (metaDescriptionErrors.Length > MaxMetaDescLength || metaDescriptionErrors.Length < MinMetaDescLength)
+                    result.SEOErrors.Add(new()
+                    {
+                        ErrorImpact = "MEDIUM",
+                        ErrorPlace = "Meta Description",
+                        ErrorText = $"The Meta Description Length is not within the recommended {MinMetaDescLength} - {MaxMetaDescLength} characters",
+                        ErrorWeight = "MODERATE",
+                    });
+                else
+                    result.YourScore += 2;
+
+                // Has Main Keyword
+
+                metaDescriptionErrors.HasPrimaryKeyword = CheckTextForKeywords(metaDescriptionErrors.MetaDescription, PrimaryKeyword);
+                if (metaDescriptionErrors.HasPrimaryKeyword)
+                    result.YourScore += 2;
+                else
+                    result.SEOErrors.Add(new()
+                    {
+                        ErrorImpact = "HIGH",
+                        ErrorPlace = "Meta Description",
+                        ErrorText = "The Meta Description Doesn't Contain the Primary Keyword",
+                        ErrorWeight = "MODERATE"
+                    });
+
+                // Has Other Keywords
+
+                if (KeywordsList.Count() > 0)
+                    metaDescriptionErrors.HasKeywords = KeywordsList.All(k => metaDescriptionErrors.HasKeywords || CheckTextForKeywords(metaDescriptionErrors.MetaDescription, k));
+                if (metaDescriptionErrors.HasKeywords)
+                    result.YourScore += 1;
+                else
+                    result.SEOErrors.Add(new()
+                    {
+                        ErrorImpact = "LOW",
+                        ErrorPlace = "Meta Description",
+                        ErrorText = "The Meta Description Doesn't Contain any Of The Other Keywords ( Besides The Primary )",
+                        ErrorWeight = "MODERATE"
+                    });
+            }
+            else
+            {
+                result.YourScore += 1;
+                result.SEOErrors.Add(new()
+                {
+                    ErrorImpact = "HIGH",
+                    ErrorPlace = "Meta Description",
+                    ErrorText = "There is more than 1 Meta Description Which is not Recommended ",
+                    ErrorWeight = "MODERATE"
+                });
+                metaDescriptionErrors.Exists = true;
+                metaDescriptionErrors.MoreThanOne = true;
+            }
+
+            return metaDescriptionErrors;
+        }
+
+        private static SubHeadingErrors SubHeadingErrorsCheck(string PrimaryKeyword, PageAuditResult result, HtmlDocument doc, HashSet<string> KeywordsList)
+        {
+            result.TotalScore += 5;
+            SubHeadingErrors subHeadingErrors = new();
+            var headings = doc.DocumentNode.SelectNodes("//h2").ToList();
+            if (headings.Count > 0)
+            {
+                result.YourScore += 2;
+                subHeadingErrors.Exists = true;
+                if (headings.Any(h => KeywordsList.ToList().Any(k => CheckTextForKeywords(h.InnerText, k)) || CheckTextForKeywords(h.InnerText, PrimaryKeyword)))
+                    result.YourScore += 3;
+                else
+                    result.SEOErrors.Add(new()
+                    {
+                        ErrorImpact = "HIGH",
+                        ErrorPlace = "Sub Headings",
+                        ErrorText = "Subheadings Don't Contain Any Keywords",
+                        ErrorWeight = "MODERATE"
+                    });
+                
+                headings.ForEach(h => subHeadingErrors.SubHeadings.Add(new()
+                {
+                    HasKeywords = KeywordsList.ToList().Any(k => CheckTextForKeywords(h.InnerText, k)) || CheckTextForKeywords(h.InnerText, PrimaryKeyword),
+                    Level = 2,
+                    Heading = h.InnerHtml
+                }));
+            }
+            else
+                result.SEOErrors.Add(new()
+                {
+                    ErrorImpact = "MEDIUM",
+                    ErrorWeight = "MODERATE",
+                    ErrorPlace = "Sub-Headings",
+                    ErrorText = "The Web page Doesn't Containt Any Subheadings"
+                });
+            return subHeadingErrors;
+        }
+
+        private static HashSet<string> GetAllkeywords(string[]? Keywords, HtmlDocument doc)
+        {
+            HashSet<string> KeywordsList = new();
+            try
+            {
+                var kws = doc.DocumentNode
+               .SelectNodes("//meta")
+               .Where(n => n.Attributes.Contains("name"))
+               .Where(n => n.Attributes["name"].Value.ToLower() == "keywords").First();
+                kws.Attributes["content"].Value.Split(',').ToList().ForEach(k => KeywordsList.Add(k));
+            }
+            catch
+            { }
+            if (Keywords is not null)
+                Keywords.ToList().ForEach(k => KeywordsList.Add(k));
+            return KeywordsList;
+        }
+
+        private static void CheckLoadingTime(PageAuditResult result, BasicSEO basic, string data, TimeSpan timeTaken)
+        {
             basic.LoadingTime = timeTaken.TotalSeconds;
             basic.HTMLSize = data.Length;
             result.TotalScore += 3;
@@ -106,9 +363,10 @@ namespace SEOHelper.Service
             }
             else
                 result.YourScore += 3;
+        }
 
-            // SSL Certificate Expiration
-
+        private static async Task CheckSSLCertificate(string URL, PageAuditResult result, BasicSEO basic)
+        {
             result.TotalScore += 3;
             X509Certificate2 certificate = null;
             var httpClientHandler = new HttpClientHandler
@@ -146,9 +404,10 @@ namespace SEOHelper.Service
                     ErrorText = "You Don't Have an SSL Certificate"
                 });
             }
+        }
 
-            // Checking For Doctype
-
+        private static void CheckDoctype(PageAuditResult result, BasicSEO basic, string data)
+        {
             result.TotalScore++;
             if (data.Contains("<!DOCTYPE html>"))
             {
@@ -165,9 +424,10 @@ namespace SEOHelper.Service
                     ErrorWeight = "Moderate"
                 });
             }
+        }
 
-            // Checking For Mobile Responsivness 
-
+        private static void CheckMobileResponsivness(PageAuditResult result, BasicSEO basic, string data)
+        {
             result.TotalScore++;
             if (data.Contains("meta name=\"viewport\""))
             {
@@ -184,9 +444,10 @@ namespace SEOHelper.Service
                     ErrorWeight = "MODERATE"
                 });
             }
+        }
 
-            // Checking For Encoding 
-
+        private static void CheckEncoding(PageAuditResult result, BasicSEO basic, string data)
+        {
             result.TotalScore++;
             if (data.Contains("meta charset"))
             {
@@ -203,12 +464,14 @@ namespace SEOHelper.Service
                     ErrorWeight = "Moderate"
                 });
             }
+        }
 
-            // Minimal Javascript 
-
+        private static void CheckMinimalJS(PageAuditResult result, HtmlDocument doc)
+        {
             result.TotalScore++;
-            bool minimal_js = doc.DocumentNode.SelectNodes("//script").Where(s => s.Attributes.Contains("src"))
-                    .All(s => s.Attributes["src"].ToString().ToLower().Contains("min"));
+            var all = doc.DocumentNode.SelectNodes("//script");
+            var minimal_js = all.Where(s => s.HasAttributes).Where(s => s.Attributes.Contains("src"))
+                .ToList().All(s=>s.Attributes["src"].Value.Contains("min"));
             if (minimal_js)
                 result.YourScore++;
             else
@@ -219,9 +482,10 @@ namespace SEOHelper.Service
                     ErrorText = "Some Javascript Files are not minimal",
                     ErrorWeight = "LIGHT"
                 });
+        }
 
-            // Checking For Primary keyword In URL & URL Length
-
+        private static void CheckURLErrors(string URL, string PrimaryKeyword, PageAuditResult result, HttpClient web1, BasicSEO basic)
+        {
             result.TotalScore += 4;
             var relativeurl = string.Join("", web1.BaseAddress.Segments.Skip(1));
             basic.URLLength = relativeurl.Length;
@@ -247,9 +511,10 @@ namespace SEOHelper.Service
                     ErrorText = "URL Doesn't Contain the Primary Keyword",
                     ErrorWeight = "MODERATE"
                 });
+        }
 
-            // Check if Blocked From Seach Engine
-
+        private static void CheckSEBlock(PageAuditResult result, BasicSEO basic, HtmlDocument doc)
+        {
             result.TotalScore += 3;
             var noindex = doc.DocumentNode.SelectNodes("//meta").Where(m => m.Attributes.Contains("content") && m.Attributes["content"].Value == "noindex");
             if (noindex.Any())
@@ -265,10 +530,10 @@ namespace SEOHelper.Service
             }
             else
                 result.YourScore += 3;
+        }
 
-            // On-Page SEO Errors 
-            // 1 - Title Errors :
-
+        private static TitleErrors TitleErrorsCheck(string PrimaryKeyword, PageAuditResult result, HtmlDocument doc, HashSet<string> KeywordsList)
+        {
             TitleErrors titleErrors = new();
 
             // Checking For Title Errors
@@ -293,7 +558,7 @@ namespace SEOHelper.Service
             {
                 result.YourScore += 5;
                 // Title Length
-                
+
                 titleErrors.TitleLength = titles.First().InnerText.Length;
                 if (titleErrors.TitleLength > MaxTitleLength)
                     result.SEOErrors.Add(new()
@@ -305,28 +570,30 @@ namespace SEOHelper.Service
                     });
                 else
                     result.YourScore += 2;
-                
+
                 // Has Main Keyword
-                
+
                 titleErrors.HasMainKeyword = CheckTextForKeywords(titles.First().InnerText, PrimaryKeyword);
                 if (titleErrors.HasMainKeyword)
                     result.YourScore += 3;
                 else
-                    result.SEOErrors.Add(new() {
+                    result.SEOErrors.Add(new()
+                    {
                         ErrorImpact = "HIGH",
                         ErrorPlace = "Title",
                         ErrorText = "The Title Doesn't Contain the Primary Keyword",
-                        ErrorWeight= "HEAVY"
+                        ErrorWeight = "HEAVY"
                     });
 
                 // Has Other Keywords
-                
-                if(Keywords != null)
-                    Keywords.All(k => titleErrors.HasKeywords || CheckTextForKeywords(titles.First().InnerText, k));
+
+                if (KeywordsList.Count() > 0)
+                    titleErrors.HasKeywords = KeywordsList.All(k => titleErrors.HasKeywords || CheckTextForKeywords(titles.First().InnerText, k));
                 if (titleErrors.HasKeywords)
                     result.YourScore += 1;
                 else
-                    result.SEOErrors.Add(new() {
+                    result.SEOErrors.Add(new()
+                    {
                         ErrorImpact = "HIGH",
                         ErrorPlace = "Title",
                         ErrorText = "The Title Doesn't Contain at Least One Of The Other Keywords ( Besides The Primary )",
@@ -340,7 +607,7 @@ namespace SEOHelper.Service
                 {
                     ErrorImpact = "HIGH",
                     ErrorPlace = "Title",
-                    ErrorText = "There is more than 1 Title Which is not Recommended :"+string.Join(',',titles.Select(t=>t.InnerText)),
+                    ErrorText = "There is more than 1 Title Which is not Recommended :" + string.Join(',', titles.Select(t => t.InnerText)),
                     ErrorWeight = "HEAVY"
                 });
                 titleErrors.TitleExists = true;
@@ -348,11 +615,14 @@ namespace SEOHelper.Service
                 titleErrors.HasMainKeyword = false;
             }
 
-            // Main Heading Errors
+            return titleErrors;
+        }
 
+        private static HeadingErrors HeadingErrorsCheck(string PrimaryKeyword, PageAuditResult result, HtmlDocument doc, HashSet<string> KeywordsList)
+        {
             HeadingErrors headingErrors = new();
             result.TotalScore += 9;
-            var headings= doc.DocumentNode
+            var headings = doc.DocumentNode
                 .SelectNodes("//h1")
                 .ToList();
             if (headings.Count() == 0)
@@ -369,6 +639,7 @@ namespace SEOHelper.Service
             }
             else if (headings.Count() == 1)
             {
+                headingErrors.Exists = true;
                 result.YourScore += 4;
                 // Heading Length
 
@@ -400,8 +671,8 @@ namespace SEOHelper.Service
 
                 // Has Other Keywords
 
-                if (Keywords != null)
-                    Keywords.All(k => headingErrors.HasKeywords || CheckTextForKeywords(headings.First().InnerText, k));
+                if (KeywordsList.Count() > 0)
+                    headingErrors.HasKeywords = KeywordsList.All(k => headingErrors.HasKeywords || CheckTextForKeywords(headings.First().InnerText, k));
                 if (headingErrors.HasKeywords)
                     result.YourScore += 1;
                 else
@@ -423,28 +694,28 @@ namespace SEOHelper.Service
                     ErrorText = "There is more than 1 Heading Which is not Recommended :" + string.Join(',', headings.Select(t => t.InnerText)),
                     ErrorWeight = "HEAVY"
                 });
-                headingErrors.Exists= true;
-                headingErrors.MoreThanOne= true;
+                headingErrors.Exists = true;
+                headingErrors.MoreThanOne = true;
             }
 
-
-            // Assigning The Results To The Result Object
-            result.BasicSEO = basic;
-            result.OnPageSEO = new() {
-                TitleErrors = titleErrors,
-                HeadingErrors = headingErrors,
-            };
-            // Returning The Final Result
-            return result;
-        }
-        public Task<WebsiteAuditResult> AllPageAudit(string URL, string PrimaryKeyword, string[]? Keywords)
-        {
-            return null;
+            return headingErrors;
         }
 
+        
         static bool CheckTextForKeywords(string Text, string Keyword)
         {
             return Text.ToLower().Contains(Keyword.ToLower());
+        }
+
+        public void AddError(PageAuditResult result, string Impact, string Weight, string Place, string ErrMessage)
+        {
+            result.SEOErrors.Add(new()
+            {
+                ErrorImpact = Impact,
+                ErrorPlace = Place,
+                ErrorText = ErrMessage,
+                ErrorWeight = Weight
+            });
         }
     }
 }
