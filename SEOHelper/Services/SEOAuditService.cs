@@ -160,7 +160,8 @@ namespace SEOHelper.Service
             ContentErrors contentErrors = new();
             ContentErrorCheck(PrimaryKeyword, result, doc, KeywordsList, contentErrors);
 
-            await CheckForURLError(URL, result, httpclient, doc, contentErrors);
+            // Comment If You Want To Test Faster
+            //await CheckForURLError(URL, result, httpclient, doc, contentErrors);
 
 
 
@@ -278,10 +279,47 @@ namespace SEOHelper.Service
         {
             ImageErrors imgErrors = new();
             result.TotalScore += 6;
-            imgErrors.ImagesExist = doc.DocumentNode.SelectNodes("//img") is not null && doc.DocumentNode.SelectNodes("//img").Any();
-            if (imgErrors.ImagesExist)
-                result.YourScore += 2;
+            if (doc.DocumentNode.SelectNodes("//img") is not null)
+            {
+                imgErrors.ImagesExist = doc.DocumentNode.SelectNodes("//img").Any();
+                if (imgErrors.ImagesExist)
+                    result.YourScore += 2;
+                else
+                    result.SEOErrors.Add(new()
+                    {
+                        ErrorWeight = "HEAVY",
+                        ErrorText = "Your Website Doesn't Have Any Images",
+                        ErrorPlace = "Images",
+                        ErrorImpact = "MEDIUM"
+                    });
+
+                imgErrors.AllImgsHasAlt = doc.DocumentNode.SelectNodes("//img").All(i => i.Attributes.Contains("alt"));
+                if (imgErrors.AllImgsHasAlt)
+                    result.YourScore += 2;
+                else
+                    result.SEOErrors.Add(new()
+                    {
+                        ErrorWeight = "MODERATE",
+                        ErrorText = "All Images Must Have Alt Attributes",
+                        ErrorPlace = "Images",
+                        ErrorImpact = "MEDIUM"
+                    });
+
+                imgErrors.AltContainsKeywords = doc.DocumentNode.SelectNodes("//img").Where(i => i.Attributes.Contains("alt"))
+                    .Any(i => KeywordsList.ToList().Any(k => CheckTextForWord(i.Attributes["alt"].Value, k)) || CheckTextForWord(i.Attributes["alt"].Value, PrimaryKeyword));
+                if (imgErrors.AltContainsKeywords)
+                    result.YourScore += 2;
+                else
+                    result.SEOErrors.Add(new()
+                    {
+                        ErrorWeight = "MODERATE",
+                        ErrorText = "Images Alts Don't Contain ANy Keywords",
+                        ErrorPlace = "Images",
+                        ErrorImpact = "MEDIUM"
+                    });
+            }
             else
+            {
                 result.SEOErrors.Add(new()
                 {
                     ErrorWeight = "HEAVY",
@@ -289,32 +327,7 @@ namespace SEOHelper.Service
                     ErrorPlace = "Images",
                     ErrorImpact = "MEDIUM"
                 });
-
-            imgErrors.AllImgsHasAlt = doc.DocumentNode.SelectNodes("//img").All(i => i.Attributes.Contains("alt"));
-            if (imgErrors.AllImgsHasAlt)
-                result.YourScore += 2;
-            else
-                result.SEOErrors.Add(new()
-                {
-                    ErrorWeight = "MODERATE",
-                    ErrorText = "All Images Must Have Alt Attributes",
-                    ErrorPlace = "Images",
-                    ErrorImpact = "MEDIUM"
-                });
-
-            imgErrors.AltContainsKeywords = doc.DocumentNode.SelectNodes("//img").Where(i => i.Attributes.Contains("alt"))
-                .Any(i => KeywordsList.ToList().Any(k => CheckTextForWord(i.Attributes["alt"].Value, k)) || CheckTextForWord(i.Attributes["alt"].Value, PrimaryKeyword));
-            if (imgErrors.AltContainsKeywords)
-                result.YourScore += 2;
-            else
-                result.SEOErrors.Add(new()
-                {
-                    ErrorWeight = "MODERATE",
-                    ErrorText = "Images Alts Don't Contain ANy Keywords",
-                    ErrorPlace = "Images",
-                    ErrorImpact = "MEDIUM"
-                });
-
+            }
             return imgErrors;
         }
 
