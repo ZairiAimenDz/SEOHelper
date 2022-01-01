@@ -30,11 +30,11 @@ namespace SEOHelper.Controllers
         }
 
         [HttpGet("Site")]
-        public IActionResult GetSiteAudit([FromQuery]string URL
+        public async Task<IActionResult> GetSiteAudit([FromQuery]string URL
             ,[FromQuery]string PrimaryKeyword
             ,[FromQuery]string[]? Keywords)
         {
-            return Ok(auditService.AllPageAudit(URL,PrimaryKeyword,Keywords));
+            return Ok(await auditService.AllPageAudit(URL,PrimaryKeyword,Keywords));
         }
     }
 }

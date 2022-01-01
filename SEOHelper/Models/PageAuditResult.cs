@@ -3,6 +3,7 @@
     public class WebsiteAuditResult
     {
         public string URL { get; set; } = "";
+        public double AvgPageScore { get; set; }
         public List<PageAuditResult> PagesAudit { get; set; } = new();
         public bool HasSiteMap { get; set; }
     }
@@ -11,6 +12,9 @@
         public string URL { get; set; } = "";
         public int TotalScore { get; set; } = 0;
         public int YourScore { get; set; } = 0;
+        public bool DuplicateMeta { get; set; }
+        public bool DuplicateHeading { get; set; }
+        public bool DuplicateTitle { get; set; }
         public bool Works { get; set; }
         public bool TemporaryRedirect { get; set; }
         public HashSet<string> Keywords { get; set; } = new();
@@ -38,8 +42,8 @@
 
     public class ContentErrors
     {
-        public List<Route> InternalRoutes { get; set; } = new();
-        public List<Route> ExternalRoutes { get; set; } = new();
+        public List<ALink> InternalRoutes { get; set; } = new();
+        public List<ALink> ExternalRoutes { get; set; } = new();
         public int ContentLength { get; set; }
         public bool HasKeywords { get; set; }
         public bool PrimaryKeywordInFirstP { get; set; }
@@ -47,7 +51,7 @@
         public bool DuplicateContent { get; set; }
     }
 
-    public class Route
+    public class ALink
     {
         public string RouteLink { get; set; } = "";
         public bool HasHTTPs { get; set; }
@@ -80,6 +84,7 @@
 
     public class HeadingErrors
     {
+        public string Heading { get; set; } = "";
         public int HeadingLength { get; set; }
         public bool Exists { get; set; }
         public bool MoreThanOne { get; set; }
@@ -89,6 +94,7 @@
 
     public class TitleErrors
     {
+        public string Title { get; set; } = "";
         public int TitleLength { get; set; }
         public bool TitleExists { get; set; } = true;
         public bool MoreThanOne { get; set; }
