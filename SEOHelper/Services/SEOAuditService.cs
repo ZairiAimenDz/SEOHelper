@@ -39,7 +39,7 @@ namespace SEOHelper.Service
                     try
                     {
                         var audit = await OnePageAudit(node["loc"].InnerText, PrimaryKeyword, Keywords);
-                        if (audit is not null) 
+                        if (audit is not null)
                             result.PagesAudit.Add(audit);
                     }
                     catch (Exception ex)
@@ -49,21 +49,27 @@ namespace SEOHelper.Service
 
             foreach (var page in result.PagesAudit)
             {
-                if(page.OnPageSEO.TitleErrors.Title.Length > 0)
+                page.TotalScore += 9;
+                if (page.OnPageSEO.TitleErrors.Title.Length > 0)
                     page.DuplicateTitle = result.PagesAudit.Where(p => p.OnPageSEO.TitleErrors.Title == page.OnPageSEO.TitleErrors.Title).Count() > 1;
                 if (page.DuplicateTitle)
                     AddError(page, "High", "Moderate", "Title", "Title is Duplicated");
+                else
+                    page.YourScore += 3;
 
-                if (page.OnPageSEO.HeadingErrors.Heading.Length > 0) 
-                    page.DuplicateHeading = result.PagesAudit.Where(p => p.OnPageSEO.HeadingErrors.Heading== page.OnPageSEO.HeadingErrors.Heading).Count() > 1;
+                if (page.OnPageSEO.HeadingErrors.Heading.Length > 0)
+                    page.DuplicateHeading = result.PagesAudit.Where(p => p.OnPageSEO.HeadingErrors.Heading == page.OnPageSEO.HeadingErrors.Heading).Count() > 1;
                 if (page.DuplicateHeading)
                     AddError(page, "High", "Moderate", "Title", "Title is Duplicated");
+                else
+                    page.YourScore += 3;
 
-                if (page.OnPageSEO.MetaDescriptionErrors.MetaDescription.Length > 0) 
-                    page.DuplicateMeta = result.PagesAudit.Where(p => p.OnPageSEO.MetaDescriptionErrors.MetaDescription== page.OnPageSEO.MetaDescriptionErrors.MetaDescription).Count() > 1;
+                if (page.OnPageSEO.MetaDescriptionErrors.MetaDescription.Length > 0)
+                    page.DuplicateMeta = result.PagesAudit.Where(p => p.OnPageSEO.MetaDescriptionErrors.MetaDescription == page.OnPageSEO.MetaDescriptionErrors.MetaDescription).Count() > 1;
                 if (page.DuplicateMeta)
                     AddError(page, "High", "Moderate", "Title", "Title is Duplicated");
-
+                else
+                    page.YourScore += 3;
             }
 
             result.AvgPageScore = (double)result.PagesAudit.Sum(r => r.YourScore) * 100.0 / result.PagesAudit.Sum(r => r.TotalScore);
@@ -161,10 +167,9 @@ namespace SEOHelper.Service
             ContentErrorCheck(PrimaryKeyword, result, doc, KeywordsList, contentErrors);
 
             // Comment If You Want To Test Faster
-            //await CheckForURLError(URL, result, httpclient, doc, contentErrors);
+            await CheckForURLError(URL, result, httpclient, doc, contentErrors);
 
-
-
+            SocialMediaSEO socialMediaErrors = CheckSocialMediaErrors(result, doc);
 
             // Final Result
 
@@ -177,12 +182,62 @@ namespace SEOHelper.Service
                 SubHeadingErrors = subHeadingErrors,
                 MetaDescriptionErrors = metaDescriptionErrors,
                 ImageErrors = imgErrors,
-                ContentErrors = contentErrors,
+                ContentErrors = contentErrors
             };
+            result.SocialMediaSEO = socialMediaErrors;
 
             // Returning The Final Result
 
             return result;
+        }
+
+        private static SocialMediaSEO CheckSocialMediaErrors(PageAuditResult result, HtmlDocument doc)
+        {
+            SocialMediaSEO socialMediaErrors = new();
+            result.YourScore += 9;
+            TwitterCardsErrors cardsErrors = new()
+            {
+                HasCard = CheckIfMetaExists("twitter:card", doc)
+                    || CheckIfMetaExists("og:type", doc),
+                HasDescription = CheckIfMetaExists("twitter:description", doc)
+                    || CheckIfMetaExists("og:description", doc),
+                HasImage = CheckIfMetaExists("twitter:image", doc)
+                    || CheckIfMetaExists("og:image", doc),
+                HasSite = CheckIfMetaExists("twitter:site", doc),
+                HasTitle = CheckIfMetaExists("twitter:title", doc)
+                    || CheckIfMetaExists("og:title", doc)
+            };
+            if (cardsErrors.AllTrue())
+                result.YourScore += 3;
+
+            OpenGraphErrors openGraphErrors = new()
+            {
+                HasTitle = CheckIfMetaExists("og:title", doc),
+                HasImage = CheckIfMetaExists("og:image", doc),
+                HasDescription = CheckIfMetaExists("og:description", doc),
+                HasLocale = CheckIfMetaExists("og:locale", doc),
+                HasType = CheckIfMetaExists("og:type", doc),
+                HasURL = CheckIfMetaExists("og:url", doc)
+            };
+            if (openGraphErrors.ObligatoryAllTrue())
+                result.YourScore += 3;
+
+            AppleMobileErrors mobileErrors = new()
+            {
+                HasTitle = CheckIfMetaExists("apple-mobile-web-app-title", doc),
+                HasBarStyle = CheckIfMetaExists("apple-mobile-web-app-status-bar-style", doc),
+                HasCapableDef = CheckIfMetaExists("apple-mobile-web-app-status-bar-style", doc),
+                HasFormatDetection = CheckIfMetaExists("format-detection", doc),
+                HasImage = CheckIfMetaExists("apple-touch-startup-image", doc)
+            };
+            if (mobileErrors.AllTrue())
+                result.YourScore += 3;
+
+
+            socialMediaErrors.TwitterCardsErrors = cardsErrors;
+            socialMediaErrors.OpenGraphErrors = openGraphErrors;
+            socialMediaErrors.AppleMobileErrors = mobileErrors;
+            return socialMediaErrors;
         }
 
         private async Task CheckForURLError(string URL, PageAuditResult result, HttpClient httpclient, HtmlDocument doc, ContentErrors contentErrors)
@@ -425,7 +480,7 @@ namespace SEOHelper.Service
         {
             result.TotalScore += 5;
             SubHeadingErrors subHeadingErrors = new();
-            if (doc.DocumentNode.SelectNodes("//h2")!= null)
+            if (doc.DocumentNode.SelectNodes("//h2") != null)
             {
                 var headings = doc.DocumentNode.SelectNodes("//h2").ToList();
                 result.YourScore += 2;
@@ -838,7 +893,13 @@ namespace SEOHelper.Service
             return headingErrors;
         }
 
-
+        public static bool CheckIfMetaExists(string property, HtmlDocument doc)
+        {
+            if (string.IsNullOrEmpty(property))
+                return false;
+            var metas = doc.DocumentNode.SelectNodes($"//meta[@name=\"{property}\" or @property=\"{property}\"]");
+            return metas != null && metas.Any();
+        }
         static bool CheckTextForWord(string Text, string Keyword)
         {
             return Text.ToLower().Contains(Keyword.ToLower());

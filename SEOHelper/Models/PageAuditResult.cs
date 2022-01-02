@@ -21,6 +21,55 @@
         public List<SEOError> SEOErrors { get; set; } = new();
         public BasicSEO BasicSEO { get; set; } = new();
         public OnPageSEO OnPageSEO { get; set; } = new();
+        public SocialMediaSEO SocialMediaSEO { get; set; } = new(); 
+    }
+
+    public class SocialMediaSEO
+    {
+        public OpenGraphErrors OpenGraphErrors { get; set; } = new();
+        public TwitterCardsErrors TwitterCardsErrors { get; set; } = new();
+        public AppleMobileErrors AppleMobileErrors { get; set; } = new();
+    }
+    public class OpenGraphErrors
+    {
+        // Obligatory :
+        public bool HasTitle { get; set; }
+        public bool HasType { get; set; }
+        public bool HasImage { get; set; }
+        public bool HasURL { get; set; }
+        // Optional 
+        public bool HasDescription { get; set; }
+        public bool HasLocale { get; set; }
+
+        public bool ObligatoryAllTrue()
+        {
+            return HasTitle && HasType && HasImage && HasURL && HasDescription;
+        }
+
+    }
+    public class TwitterCardsErrors {
+        public bool HasCard { get; set; }
+        public bool HasSite { get; set; }
+        public bool HasTitle { get; set; }
+        public bool HasImage { get; set; }
+        public bool HasDescription { get; set; }
+        public bool AllTrue()
+        {
+            return HasImage && HasCard && HasSite && HasTitle && HasDescription;
+        }
+    }
+    public class AppleMobileErrors {
+        public bool HasTitle { get; set; }
+        public bool HasImage { get; set; }
+        public bool HasCapableDef { get; set; }
+        public bool HasBarStyle { get; set; }
+        public bool HasFormatDetection { get; set; }
+
+        public bool AllTrue()
+        {
+            return HasTitle && HasImage && HasCapableDef && HasBarStyle && HasFormatDetection;
+        }
+
     }
 
     public class OnPageSEO
